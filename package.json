@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "pg": "^8.5.1",
+    "twilio": "^3.58.0"
+  },
+  "devDependencies": {
+    "prettier": "^2.2.1"
+  },
+  "prettier": {
+    "printWidth": 100
+  }
+}
