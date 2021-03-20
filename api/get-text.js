@@ -7,6 +7,7 @@ const { ADDRESS, DATABASE_URL, TWILIO_AUTH_TOKEN, TWILIO_WEBHOOK_URL } = process
 
 const ITEMS = {
   clock: false,
+  cup: true,
   sword: false,
 };
 
