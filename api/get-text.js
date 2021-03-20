@@ -14,34 +14,40 @@ export default async (req, res) => {
   // Verify Twilio sent this request
   const signature = req.headers["x-twilio-signature"];
   const { body } = req;
+  console.log(body);
   const valid = Twilio.validateRequest(TWILIO_AUTH_TOKEN, signature, TWILIO_WEBHOOK_URL, body);
   if (!valid) {
     throw "Failed Twilio signature verification";
   }
 
-  // Generate the response message
-  const [item, itemStatus] = getItem(body);
-  const message = getResponseMessage(item, itemStatus);
-  console.log(body);
-  console.log({ item, itemStatus, message });
+  // Connect to Postgres
+  const client = new Client({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  await client.connect();
 
-  // Save the person who texted if they specified a valid item
+  // Instantiate and set the final "TwiML" (Twilio's XML schema) response
+  const twiml = new MessagingResponse();
+  const [item, itemStatus] = getItem(body);
+  console.log({ item, itemStatus });
   if (item) {
-    const client = new Client({
-      connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    });
-    await client.connect();
     await client.query("insert into texters (phone, item, item_status) values($1, $2, $3)", [
       body.From,
       item,
       itemStatus,
     ]);
+    const otherTexters = await client.query(
+      "select count(distinct phone)::int from texters where item = $1 and phone != $2",
+      [item, body.From]
+    );
+    twiml.message(getResponseMessage(item, itemStatus, otherTexters.rows[0].count));
+  } else {
+    twiml.message("Sorry, what #item are you interested in from the craigslist post?");
   }
+  console.log(twiml.toString());
 
-  // Send the actual response to the webhook
-  const twiml = new MessagingResponse();
-  twiml.message(message);
+  // Send the webhook response
   res.setHeader("Content-Type", "text/xml");
   res.send(twiml.toString());
 };
@@ -60,9 +66,21 @@ function getItem(body) {
   }
 }
 
-function getResponseMessage(item, itemStatus) {
+function getResponseMessage(item, itemStatus, otherTexters) {
   if (itemStatus === true) {
-    return `The ${item} is still available! My address is ${ADDRESS}. It's sitting on the front steps. I will not hold the ${item} for any reason. Thanks!`;
+    const others =
+      {
+        0: "No one besides you has",
+        1: "1 other person has",
+      }[otherTexters] || `${otherTexters} other people have`;
+
+    return [
+      `The ${item} is still available!`,
+      `My address is ${ADDRESS}.`,
+      "It's sitting on the front steps.",
+      `${others} texted me so far.`,
+      `I will not hold the ${item} for any reason. Thanks!`,
+    ].join(" ");
   } else if (itemStatus === false) {
     return `Sorry, the ${item} is no longer available`;
   } else {
