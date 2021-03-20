@@ -6,7 +6,7 @@ const { MessagingResponse } = Twilio.twiml;
 const { ADDRESS, DATABASE_URL, TWILIO_AUTH_TOKEN, TWILIO_WEBHOOK_URL } = process.env;
 
 const ITEMS = {
-  clock: true,
+  clock: false,
   sword: false,
 };
 
