@@ -5,33 +5,23 @@ const { MessagingResponse } = Twilio.twiml;
 
 const { ADDRESS, DATABASE_URL, TWILIO_AUTH_TOKEN, TWILIO_WEBHOOK_URL } = process.env;
 
-const ITEMS = {
-  clock: false,
-  cup: true,
-  sword: false,
-};
-
 export default async (req, res) => {
-  // Verify Twilio sent this request
-  const signature = req.headers["x-twilio-signature"];
   const { body } = req;
   console.log(body);
-  const valid = Twilio.validateRequest(TWILIO_AUTH_TOKEN, signature, TWILIO_WEBHOOK_URL, body);
-  if (!valid) {
+
+  // Verify Twilio sent this request
+  if (!isTwilioRequest(req)) {
     throw "Failed Twilio signature verification";
   }
 
-  // Connect to Postgres
-  const client = new Client({
-    connectionString: DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-  });
-  await client.connect();
+  // Connect to Postgres and fetch items
+  const client = await getPgClient();
+  const items = await getItems(client);
 
   // Instantiate and set the final "TwiML" (Twilio's XML schema) response
   const twiml = new MessagingResponse();
-  const [item, itemStatus] = getItem(body);
-  console.log({ item, itemStatus });
+  const [item, itemStatus] = getItem(items, body);
+  console.log({ items, item, itemStatus });
   if (item) {
     await client.query("insert into texters (phone, item, item_status) values($1, $2, $3)", [
       body.From,
@@ -53,10 +43,31 @@ export default async (req, res) => {
   res.send(twiml.toString());
 };
 
-function getItem(body) {
+function isTwilioRequest(req) {
+  const signature = req.headers["x-twilio-signature"];
+  return Twilio.validateRequest(TWILIO_AUTH_TOKEN, signature, TWILIO_WEBHOOK_URL, req.body);
+}
+
+async function getPgClient() {
+  const client = new Client({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  await client.connect();
+  return client;
+}
+
+async function getItems(client) {
+  const items = {};
+  const itemsRes = await client.query("select * from items");
+  itemsRes.rows.forEach((r) => (items[r["name"]] = r["available"]));
+  return items;
+}
+
+function getItem(items, body) {
   try {
     const item = body.Body.match(/#(\w+)/)[1];
-    const itemStatus = ITEMS[item];
+    const itemStatus = items[item];
     if (itemStatus === true || itemStatus === false) {
       return [item, itemStatus];
     } else {
